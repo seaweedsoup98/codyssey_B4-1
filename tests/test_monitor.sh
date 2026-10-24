@@ -94,7 +94,7 @@ run_monitor
 pass 'all strict-above-threshold warnings; log still appended'
 
 # Leave fewer than one line of headroom; rotate and retain nine archives.
-truncate -s $((10 * 1024 * 1024 - 20)) "$AGENT_LOG_DIR/monitor.log"
+truncate -s $((10 * 1000 * 1000 - 20)) "$AGENT_LOG_DIR/monitor.log"
 for n in {1..9}; do printf 'archive-%s\n' "$n" > "$AGENT_LOG_DIR/monitor.log.$n"; done
 run_monitor
 [[ -f "$AGENT_LOG_DIR/monitor.log.1" && -f "$AGENT_LOG_DIR/monitor.log.9" ]]
@@ -102,7 +102,7 @@ run_monitor
 [[ ! -e "$AGENT_LOG_DIR/monitor.log.10" ]]
 [[ $(find "$AGENT_LOG_DIR" -maxdepth 1 -name 'monitor.log*' -type f | wc -l) -eq 10 ]]
 [[ $(count_lines) -eq 1 ]]
-pass '10 MiB boundary; active file plus nine rotated files'
+pass '10 MB boundary; active file plus nine rotated files'
 
 exec 8>"$AGENT_LOG_DIR/.monitor.lock"
 flock -n 8

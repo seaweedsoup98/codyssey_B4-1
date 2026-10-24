@@ -11,11 +11,19 @@ REPO_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 AGENT_HOME=/home/agent-admin/agent-app
 LOG_DIR=/var/log/agent-app
 KEY_FILE="$AGENT_HOME/api_keys/t_secret.key"
+KEY_LINK="$AGENT_HOME/api_keys/secret.key"
 
 # Do not overwrite an existing secret or follow a symlink into another file.
 if [[ -e "$KEY_FILE" || -L "$KEY_FILE" ]]; then
     [[ -f "$KEY_FILE" && ! -L "$KEY_FILE" ]] || { echo 'Unsafe existing key file.' >&2; exit 1; }
-    [[ $(cat "$KEY_FILE") == agent_api_key_test ]] || { echo 'Existing key has different contents.' >&2; exit 1; }
+    cmp -s <(printf 'agent_api_key_test\n') "$KEY_FILE" || { echo 'Existing key has different contents.' >&2; exit 1; }
+fi
+# The supplied frozen app also looks for api_keys/secret.key. Check any
+# pre-existing link before proceeding; never replace an unrelated file.
+if [[ -e "$KEY_LINK" || -L "$KEY_LINK" ]]; then
+    [[ -L "$KEY_LINK" && $(readlink -- "$KEY_LINK") == t_secret.key ]] || {
+        echo 'Unsafe existing secret.key compatibility link.' >&2; exit 1;
+    }
 fi
 
 getent group agent-common >/dev/null || groupadd agent-common
@@ -54,6 +62,9 @@ if [[ ! -e "$KEY_FILE" ]]; then
 fi
 chown agent-admin:agent-core "$KEY_FILE"
 chmod 660 "$KEY_FILE"
+if [[ ! -L "$KEY_LINK" ]]; then
+    ln -s t_secret.key "$KEY_LINK"
+fi
 
 cat > "$AGENT_HOME/agent-app.env" <<'ENV'
 export AGENT_HOME=/home/agent-admin/agent-app

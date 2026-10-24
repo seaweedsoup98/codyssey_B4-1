@@ -6,10 +6,11 @@ Linux 서버의 SSH/UFW 보안, 역할별 사용자·ACL, 제공 애플리케이
 
 | 경로 | 역할 |
 |---|---|
-| [`bin/monitor.sh`](bin/monitor.sh) | 필수 제출 소스: Health Check, 방화벽 경고, CPU/MEM/DISK, 로그 10MiB·10파일 관리 |
+| [`bin/monitor.sh`](bin/monitor.sh) | 필수 제출 소스: Health Check, 방화벽 경고, CPU/MEM/DISK, 로그 10MB·10파일 관리 |
 | [`docs/RESULTS.md`](docs/RESULTS.md) | 필수 제출 문서: 수행 내역, 검증 명령, 실제 확인/미확인 상태 |
 | [`scripts/provision.sh`](scripts/provision.sh) | 계정, 그룹, 디렉토리, ACL, 환경 변수, 권한, cron 설정 |
 | [`scripts/secure-network.sh`](scripts/secure-network.sh) | SSH 20022/Root 차단 및 UFW의 TCP 20022·15034만 허용 |
+| [`scripts/install-app.sh`](scripts/install-app.sh) | 제공된 ZIP의 아키텍처별 공식 바이너리 설치 |
 | [`scripts/run-app.sh`](scripts/run-app.sh) | 제공 앱을 `agent-admin`으로 실행 |
 | [`scripts/verify.sh`](scripts/verify.sh) | 실제 VM 구성 증거를 읽어 출력 |
 | [`tests/test_monitor.sh`](tests/test_monitor.sh) | Bash 기반 모의 테스트 9개 |
@@ -34,20 +35,15 @@ sudo bash scripts/provision.sh
 sudo bash scripts/secure-network.sh --apply
 ```
 
-미션에서 제공한 **`agent-app.zip`**을 별도로 받아 압축을 풀고, VM 아키텍처에 맞는 원본 앱을 설치하세요. 이 저장소에는 배포받지 않은 앱을 **가짜로 만들거나 다른 사람의 바이너리로 대체하지 않았습니다**.
+제공된 **`agent-app.zip`**에는 `agent-app-linux-x86`(x86_64)과 `agent-app-linux-arm64`(aarch64)가 실제로 포함되어 있습니다. ZIP을 실습 VM의 저장소 최상위 폴더에 복사한 뒤 다음을 실행합니다. 실행 파일은 GitHub 공개 저장소에 재배포하지 않습니다.
 
 ```bash
-uname -m                                      # x86_64 또는 aarch64
-unzip -l agent-app.zip                        # 제공 파일명 확인
-unzip agent-app.zip -d /tmp/b4-1-app
-# 압축해제한 실제 경로를 직접 확인한 후 아래 변수를 수정
-APP_SOURCE='/tmp/b4-1-app/agent-app-linux-x86'
-sudo install -o agent-admin -g agent-core -m 750 \
-  "$APP_SOURCE" /home/agent-admin/agent-app/agent-app-linux-x86
-# ARM64 VM이면 목적 파일명을 agent-app-linux-arm64로 변경
-
+# 위 provision.sh가 먼저 완료되어 있어야 함
+sudo bash scripts/install-app.sh ./agent-app.zip
 sudo -iu agent-admin /home/agent-admin/agent-app/bin/run-app.sh
 ```
+
+**공식 바이너리의 확인된 호환성 차이:** 미션 문서의 `AGENT_KEY_PATH` 예시는 `.../api_keys/t_secret.key` **파일**을 지정하지만, 실제 제공된 실행 파일은 `.../api_keys` **디렉토리**와 내부 파일 `secret.key`를 요구합니다. `provision.sh`는 문서의 `t_secret.key`를 만든 뒤 `secret.key → t_secret.key` 심볼릭 링크를 추가하고, `run-app.sh`는 **바이너리 실행 시에만** 환경 변수를 디렉토리로 변경합니다. 제공 Python 파일 실행 경로에는 원래의 문서 설정을 유지합니다.
 
 별도 터미널에서 다음을 검증합니다. 위 앱 실행은 종료하지 말고 유지합니다.
 
@@ -68,6 +64,6 @@ bash -n bin/monitor.sh scripts/*.sh tests/test_monitor.sh
 bash tests/test_monitor.sh
 ```
 
-`tests/test_monitor.sh`는 외부 명령을 모의하는 **로컬 기능 테스트**이며, 실제 SSH/UFW/ACL/cron이나 제공 앱의 성공 증거를 대신하지 않습니다.
+`tests/test_monitor.sh`는 외부 명령을 모의하는 **로컬 기능 테스트**입니다. 별도로 이 ZIP의 x86_64 공식 앱을 Debian 13 격리 컨테이너에서 `agent-admin`으로 실행하여 **Boot 5/5 [OK], Agent READY, 0.0.0.0:15034 LISTEN, 실제 `monitor.sh` 로그 한 줄 기록**까지 확인했습니다. 이는 **Ubuntu 22.04 VM의 SSH/UFW/ACL/cron 적용 증거는 아닙니다**. 상세 결과는 [수행 내역](docs/RESULTS.md)에 적었습니다.
 
 **추천 학습 순서:** [구현 흐름](docs/IMPLEMENTATION.md) → [핵심 개념](docs/CONCEPTS.md) → `bin/monitor.sh` → [평가 대비](docs/EVALUATION.md) → [수행 내역](docs/RESULTS.md).

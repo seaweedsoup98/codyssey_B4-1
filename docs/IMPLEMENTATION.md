@@ -8,7 +8,8 @@ provision.sh ─→ 계정·그룹 ─→ ACL/디렉토리 ─→ env/키 ─→
 secure-network.sh ─→ SSH 20022/Root 차단 ─→ SSH 재검증 ─→ UFW 두 포트 허용
             ↓
 [agent-admin, 서비스 실행]
-run-app.sh ─→ agent-app.env ─→ 제공 바이너리/agent_app.py 실행
+install-app.sh ─→ 제공 ZIP에서 CPU 아키텍처에 맞는 실행 파일 설치
+run-app.sh ─→ agent-app.env ─→ 바이너리 호환성 설정 ─→ 제공 앱 실행
             ↓
 [agent-admin, 매분 cron]
 monitor.sh ─→ 프로세스 확인 ─→ 15034 포트/소유 PID 확인
@@ -16,14 +17,14 @@ monitor.sh ─→ 프로세스 확인 ─→ 15034 포트/소유 PID 확인
            ─→ 동시 실행 잠금 ─→ 필요 시 로그 회전 ─→ monitor.log 추가
 ```
 
-최초 설정은 Root 권한이 필요하지만, 실제 앱과 모니터링 작업은 **일반 계정 `agent-admin`**으로 실행합니다. 제공 앱 파일이 없으면 실행 단계부터 멈추므로 실제 Boot Sequence는 확인할 수 없습니다.
+최초 설정은 Root 권한이 필요하지만, 실제 앱과 모니터링 작업은 **일반 계정 `agent-admin`**으로 실행합니다. 제공 ZIP의 x86_64 바이너리로 실제 Boot Sequence를 확인했습니다. 운영 VM의 SSH/UFW/cron 결과는 별도 검증해야 합니다.
 
 ## 2. `scripts/provision.sh`: 권한과 실행 기반 마련
 
 1. `groupadd`/`useradd`로 `agent-common`(admin/dev/test)과 `agent-core`(admin/dev) 구성. `agent-test`가 이미 core에 속해 있으면 제거합니다.
 2. `/home/agent-admin`은 일반 사용자가 볼 수 없도록 700으로 제한한 뒤 ACL `g:agent-common:--x`를 부여합니다. 따라서 공유 영역에 **진입**은 가능하지만 홈 디렉토리 목록은 볼 수 없습니다.
 3. `$AGENT_HOME`은 `2710`: 소유자 전체 권한, 공통 그룹 진입만 허용. `upload_files`는 `agent-common`, `api_keys`와 `/var/log/agent-app`는 `agent-core`의 2770 디렉토리입니다. 구 ACL을 초기화하고 named/default ACL을 설정해 새 파일에도 그룹 접근을 유지합니다.
-4. `t_secret.key`에 실습에서 지정한 한 줄을 저장하고 660(`agent-admin:agent-core`)을 부여합니다. 기존 키 값이 다르면 덮어쓰지 않고 오류로 종료합니다.
+4. `t_secret.key`에 실습에서 지정한 한 줄을 저장하고 660(`agent-admin:agent-core`)을 부여합니다. 실제 바이너리가 요구하는 `secret.key`는 이 파일을 가리키는 상대 심볼릭 링크로 만들기 때문에 동일한 한 가지 키만 유지합니다. 기존 키 값이나 링크가 다르면 덮어쓰지 않습니다.
 5. `agent-app.env`에 다섯 환경 변수의 실제 경로를 기록하고 `/etc/profile.d/agent-app.sh`에서 `agent-admin` 로그인 시 읽습니다. cron은 로그인 셸을 거치지 않으므로 `monitor.sh`가 포트와 로그 디렉토리에 기본값을 갖습니다.
 6. `monitor.sh`를 `agent-dev:agent-core` **750**으로 설치합니다. 소유자는 수정할 수 있고, `agent-admin`은 그룹의 읽기·실행 권한으로 실행할 수 있습니다. `run-app.sh`는 `agent-admin`이 소유합니다.
 7. `agent-admin`에게 **읽기 전용** `sudo -n /usr/sbin/ufw status`만 무암호 허용합니다. `agent-admin`의 기존 crontab은 유지하고 매분 실행 한 줄만 추가합니다.
@@ -36,14 +37,16 @@ monitor.sh ─→ 프로세스 확인 ─→ 15034 포트/소유 PID 확인
 
 SSH 설정 변경은 현재 터미널이 아닌 **새 터미널에서 포트 20022 비-Root 로그인**에 성공했을 때만 성공입니다. 콘솔 접근 없는 원격 서버에는 적용하지 마세요.
 
-## 4. `scripts/run-app.sh`: 제공 앱 실행
+## 4. `scripts/install-app.sh`와 `scripts/run-app.sh`: 제공 앱 설치·실행
+
+`install-app.sh`는 ZIP의 두 실행 파일 중 `uname -m`에 해당하는 하나만 꺼내 `agent-admin:agent-core`, 권한 750으로 설치합니다. 기존 실행 파일의 내용이 다른 경우 덮어쓰지 않습니다.
 
 1. `id -un`과 `EUID`로 실행자가 `agent-admin`인 일반 사용자인지 확인합니다.
 2. `agent-app.env`를 `source`하여 `AGENT_HOME`, `AGENT_PORT=15034`, `AGENT_UPLOAD_DIR`, `AGENT_KEY_PATH`, `AGENT_LOG_DIR`를 **자식 프로세스에 전달**합니다.
-3. `uname -m`에 따라 공식 패키지의 `agent-app-linux-x86` 또는 `agent-app-linux-arm64`를 선택합니다. 제공 자료가 `agent_app.py`라면 Python으로 실행합니다.
+3. `uname -m`에 따라 공식 패키지의 `agent-app-linux-x86` 또는 `agent-app-linux-arm64`를 선택합니다. 미션 예시의 `AGENT_KEY_PATH`는 **키 파일**이지만, 실제 공식 바이너리는 **키 디렉토리** 환경 변수 및 그 안의 `secret.key`를 요구합니다. 따라서 공식 바이너리 실행 직전에 `AGENT_KEY_PATH=$AGENT_HOME/api_keys`로 바꿉니다. `provision.sh`는 `secret.key → t_secret.key` 링크를 만듭니다. Python 원본 파일을 사용한다면 예시의 키 파일 환경 변수 값을 유지합니다.
 4. `exec`는 셸을 앱 프로세스로 교체합니다. 덕분에 앱 종료 신호(Ctrl+C)를 앱에 전달하며 PID가 불필요하게 늘지 않습니다.
 
-앱 내부 부팅 점검은 프로젝트 코드가 구현한 것이 아니라 **제공 앱이 수행**합니다. 임의의 `[OK]` 출력을 만들어 성공을 대신하지 않습니다.
+앱 내부 부팅 점검은 프로젝트 코드가 구현한 것이 아니라 **제공 앱이 수행**합니다. 격리된 Debian 13 환경에서 실제 x86_64 바이너리의 다섯 `[OK]`, `Agent READY` 및 리스닝 소켓과 모니터링 로그를 확인했습니다(수행 내역 참조). 임의의 `[OK]` 출력을 만들어 성공을 대신하지 않습니다.
 
 ## 5. `bin/monitor.sh`: 매분 실제 처리 순서
 
@@ -64,7 +67,7 @@ SSH 설정 변경은 현재 터미널이 아닌 **새 터미널에서 포트 200
 ### 로그 순환 규칙
 
 - 로그 형식: `[YYYY-MM-DD HH:MM:SS] PID:n CPU:n% MEM:n% DISK_USED:n%`.
-- 한 행을 추가했을 때 활성 파일이 **10MiB(10×1024×1024바이트)**를 넘는다면 먼저 회전합니다.
+- 한 행을 추가했을 때 활성 파일이 **10MB(10×1000×1000바이트)**를 넘는다면 먼저 회전합니다.
 - 기존 `.9` 삭제 → `.8`부터 `.1`까지 번호 +1 → 기존 활성 로그를 `.1`로 이동 → 새 활성 로그에 기록합니다.
 - 보관 파일은 `monitor.log`와 `.1`~`.9`까지 **최대 10개**입니다. 보너스의 날짜 기준 압축/삭제와는 무관합니다.
 - `flock`은 수동 실행과 cron이 겹쳐 로그가 엉키는 것을 막습니다. 회전·기록 실패를 성공으로 보고하지 않습니다.
@@ -77,4 +80,4 @@ crontab의 `* * * * *`는 매분 실행하라는 뜻입니다. 이 작업의 표
 
 - **Bash만 사용:** `/proc`를 직접 파싱하는 복잡한 구현 대신 Ubuntu 기본 명령(`pgrep`, `ss`, `vmstat`, `free`, `df`, `flock`)을 사용해 학습자가 각 명령을 터미널에서 다시 검증할 수 있습니다.
 - **복구 기능 없음:** 미션은 관제·기록이지 앱 자동 재시작이 아니므로 추가하지 않았습니다.
-- **모의 테스트와 실제 VM 구분:** `tests/test_monitor.sh`는 입력·경계·오류 동작을 검증합니다. SSH, UFW, ACL, 앱 Boot Sequence, crontab의 실효성은 실제 Ubuntu VM에서 다시 확인해야 합니다.
+- **모의 테스트와 실제 VM 구분:** `tests/test_monitor.sh`는 입력·경계·오류 동작을 검증합니다. SSH, UFW, ACL, crontab의 실효성 및 ARM64 실행은 실제 VM에서 추가 확인해야 합니다. x86_64 앱 부팅은 격리된 Debian 환경에서 별도로 확인했습니다.

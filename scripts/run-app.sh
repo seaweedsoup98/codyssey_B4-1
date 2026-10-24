@@ -14,6 +14,10 @@ case "$(uname -m)" in
 esac
 
 if [[ -x "$app" ]]; then
+    # The official packaged binary expects a KEY *directory* and secret.key,
+    # whereas the mission's AGENT_KEY_PATH example names t_secret.key itself.
+    # provision.sh creates secret.key -> t_secret.key; translate only for this app.
+    export AGENT_KEY_PATH="$AGENT_HOME/api_keys"
     exec "$app"
 elif [[ -f "$AGENT_HOME/agent_app.py" ]]; then
     exec python3 "$AGENT_HOME/agent_app.py"

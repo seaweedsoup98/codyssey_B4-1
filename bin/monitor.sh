@@ -7,7 +7,7 @@ umask 007
 AGENT_PORT="${AGENT_PORT:-15034}"
 AGENT_LOG_DIR="${AGENT_LOG_DIR:-/var/log/agent-app}"
 LOG_FILE="$AGENT_LOG_DIR/monitor.log"
-MAX_BYTES=$((10 * 1024 * 1024))
+MAX_BYTES=10000000  # 10 MB (decimal bytes)
 # Accept both the supplied Linux binaries and the Python app mentioned in the PDF.
 PROCESS_PATTERN='(^|[ /])(agent_app\.py|agent-app-linux-(x86|arm64)|agent-app)([[:space:]]|$)'
 

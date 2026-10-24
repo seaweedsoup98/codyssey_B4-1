@@ -2,7 +2,7 @@
 
 작성일: 2026-10-24. **대상 코드:** `seaweedsoup98/codyssey_B4-1`.
 
-이 문서는 실제로 확인한 것과 실습 VM에서 **추가 확인해야 할 것**을 분리한다. 제공된 `B4-1.pdf`의 앱 자료 `agent-app.zip`은 현재 첨부되지 않았다. 따라서 실제 앱 부팅 성공, 실제 Ubuntu 방화벽, 계정/ACL과 cron의 자동 실행을 확인했다는 가짜 증거를 적지 않는다.
+실제로 검증한 **공식 x86_64 앱의 실행**, Bash 모의 테스트와 **실제 Ubuntu 실습 VM에서 아직 수행하지 못한 설정**을 구분한다. 사용자 제공 `agent-app.zip`(2026-10-24)을 검사했고 그 안의 x86/ARM64 실행 파일을 확인했다. 앱 자체는 Debian 13 격리 컨테이너에서 일반 계정으로 구동했으며 **Ubuntu 22.04의 SSH/UFW/ACL/cron까지 적용했다는 뜻은 아니다**.
 
 ## 1. 구현 완료 내용(소스 기준)
 
@@ -12,22 +12,66 @@
 | UFW 활성화, 허용 TCP 20022/15034만 | 동일 스크립트의 default deny 및 UFW 두 허용 규칙 | **미실시** |
 | 계정 admin/dev/test, 그룹 common/core | `scripts/provision.sh`의 계정 생성 및 그룹 지정 | **미실시** |
 | upload_files 공유, api_keys/log는 core 전용 | `provision.sh`의 디렉토리 소유권·2770·ACL 및 기본 ACL | **미실시** |
-| 앱 환경 변수/키 | `agent-app.env` 생성, 실습 키 한 줄, `run-app.sh` | **미실시** (원본 앱 없음) |
-| 앱 Boot 5×[OK], Agent READY | 제공 앱을 그대로 실행하도록 `run-app.sh` 구성 | **미실시** (원본 앱 없음) |
-| 프로세스/포트 확인, 실패 시 exit 1 | `bin/monitor.sh`, PID 대조 | **모의 테스트+별도 실제 TCP 소켓 테스트 통과** |
-| 방화벽 비활성 경고/리소스 수집/경고 | `bin/monitor.sh`, CPU>20/MEM>10/DISK>80 | **모의 테스트+별도 실제 리소스 수집 통과** |
-| monitor.log 형식/최대 10MiB·10개 | 잠금, 로그 회전, 한 행 추가 | **모의 테스트 통과** |
+| 앱 환경 변수/키 | `agent-app.env` 생성, 실습 키 한 줄, `secret.key` 호환 링크와 바이너리용 키 디렉토리 설정 | **x86 공식 바이너리에서 5/5 통과** |
+| 앱 Boot 5×[OK], Agent READY | `install-app.sh`로 ZIP 원본 설치, `run-app.sh` 일반 계정 실행 | **Debian 13 x86_64 격리 컨테이너 실측 성공** |
+| 프로세스/포트 확인, 실패 시 exit 1 | `bin/monitor.sh`, PID 대조 | **모의 테스트 + 공식 앱 실시간 연동 통과** |
+| 방화벽 비활성 경고/리소스 수집/경고 | `bin/monitor.sh`, CPU>20/MEM>10/DISK>80 | **모의 테스트 + 공식 앱 연동에서 경고·실측 성공** |
+| monitor.log 형식/최대 10MB·10개 | 잠금, 로그 회전, 한 행 추가 | **공식 앱 로그 한 줄 기록 + 10개 파일 회전 모의 테스트 통과** |
 | agent-admin cron 매분 실행 및 로그 증가 | `provision.sh`의 crontab 등록 | **실제 자동 실행 미실시** |
 
-보너스 `report.sh`, 시간 기반 아카이브 정책은 제외했다. **날짜 기준 보존이 아니라 크기 기준 10MiB/10파일은 필수로 구현**했다.
+보너스 `report.sh`, 시간 기반 아카이브 정책은 제외했다. **날짜 기준 보존이 아니라 크기 기준 10MB/10파일은 필수로 구현**했다.
 
-## 2. 개발 환경에서 실제로 수행한 검증
+## 2. 실제로 수행한 검증
 
-- **실행 환경:** Debian GNU/Linux 13 격리 테스트 컨테이너. 요구 Ubuntu 22.04 실습 VM과 같지 않다.
-- **정적 검사:** `bash -n bin/monitor.sh scripts/*.sh tests/test_monitor.sh` 통과.
-- **모의 실행:** `bash tests/test_monitor.sh`의 **9개 확인 절차 통과**. 정상/임계값 같음, 프로세스 누락, 포트 누락, 타 프로세스 점유, UFW 비활성 경고, 세 임계값 초과, 로그 순환, 동시 잠금, 자원 수집 오류를 검증했다.
-- **실제 시스템 명령 통합 확인:** 모의 소켓이 아닌 **테스트용** `python3 -m http.server`를 `agent-app-linux-x86` 프로세스 이름으로 TCP `0.0.0.0:15034`에 띄우고, 실제 `pgrep`·`ss`·`vmstat`·`free`·`df`와 `monitor.sh`를 실행했다. 로그 파일에 `PID`, `CPU`, `MEM`, `DISK_USED`가 기록됐으며 모드는 `660`이었다. 이 테스트 앱은 **공식 제공 앱이 아니며 Boot 5단계 증거가 아니다**.
-- **실제 SSH/UFW/ACL/cron 적용:** 격리 개발 컨테이너에 운영 SSH 설정을 변경하지 않았다. 운영 서버에 영향을 미치는 명령을 실행한 것처럼 기록하지 않는다.
+- **실행 환경:** Debian GNU/Linux 13 격리 컨테이너, x86_64. Ubuntu 22.04 실습 VM이 아니다.
+- **공식 업로드 ZIP:** `agent-app-linux-x86`(ELF x86_64, 6,498,144바이트), `agent-app-linux-arm64`(ELF aarch64, 7,537,848바이트). ZIP SHA-256: `b0489f1035369b4a8785cd84f2f0ff99f2b04f76d4caa1eca07229abb48a7732`.
+- **설치 검증:** `bash scripts/install-app.sh /mnt/data/agent-app.zip`를 두 번 실행하여 내용 동일한 바이너리 설치·재실행에 모두 성공. 설치 바이너리 SHA-256: `cdbae8c066e734916b7cd25dc9e651818acf63b2e6817125ede5e85a4de0ff5a`, 소유·권한 `agent-admin:agent-core 750`. ZIP 누락 시 종료 코드 1 확인.
+- **Bash 정적 검사:** `bash -n bin/monitor.sh scripts/*.sh tests/test_monitor.sh` 통과.
+- **Bash 모의 테스트:** `bash tests/test_monitor.sh` **9개 통과**(정상 및 정확한 임계값, 프로세스 없음, 포트 없음, 타 PID 소켓, 비활성 방화벽 경고, 임계값 초과, 10MB/10개 회전, 동시 실행 잠금, 지표 수집 오류).
+- **실제 앱 연동:** 공식 x86_64 바이너리를 `agent-admin` 일반 계정으로 실행. 처음에는 PDF와 바이너리의 키 경로 형식이 달라 실패했고, **디렉토리 환경 변수 + `secret.key` 링크**를 적용한 뒤 5단계 모두 통과. 실제 `ss`에서 `0.0.0.0:15034` LISTEN 확인. 이 실행 중 `monitor.sh`를 `agent-admin`으로 실행하여 정상 종료(코드 0), PID 확인, 실제 자원 데이터·경고·`monitor.log` 한 줄 기록 확인.
+- **미실시:** 실제 SSH 20022·UFW 규칙 적용, ACL과 crontab 등록/자동실행, ARM64 앱 실행. 컨테이너에서 위험한 네트워크 설정을 변경하지 않았다.
+
+### 공식 x86_64 앱 Boot 출력에서 확인한 항목
+
+```text
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+[2/5] Verifying Environment Variables     [OK]
+[3/5] Checking Required Files             [OK]
+[4/5] Checking Port Availability          [OK]
+[5/5] Verifying Log Permission            [OK]
+All Boot Checks Passed!
+Agent READY
+```
+
+### 실제 앱의 소켓·모니터링·로그 (컨테이너 실측)
+
+```text
+LISTEN 0 0 0.0.0.0:15034 0.0.0.0:*
+[HEALTH CHECK]
+Process... [OK] (PID: 2072)
+Port 15034/tcp... [OK]
+[FIREWALL]
+[WARNING] UFW is inactive or its status cannot be read.
+[RESOURCE MONITORING]
+CPU Usage : 6.0%
+MEM Usage : 20.2%
+DISK Used : 1%
+[WARNING] MEM threshold exceeded (20.2% > 10%)
+[INFO] Log appended: /var/log/agent-app/monitor.log
+```
+
+`/var/log/agent-app/monitor.log`에 추가된 실제 한 줄:
+
+```text
+[2026-10-24 06:36:43] PID:2072 CPU:6.0% MEM:20.2% DISK_USED:1%
+```
+
+이 출력은 **시험 당시 관측한 값**으로, 다른 환경의 PID·자원 사용률과 일치해야 하는 고정 예상 출력이 아니다. 표시 시각은 컨테이너의 UTC이다.
+
+### PDF 예시와 제공 바이너리의 호환성
+
+PDF는 `AGENT_KEY_PATH=$AGENT_HOME/api_keys/t_secret.key`를 안내한다. 업로드된 바이너리에 동일한 경로를 넘기면 `[2/5]`에서 `Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys`라고 종료한다. 바이너리에는 `AGENT_KEY_PATH=$AGENT_HOME/api_keys`를 전달해야 하고, 그다음 `[3/5]`에서 `secret.key`를 읽는다. 미션의 `t_secret.key`를 유지하면서 바이너리를 통과시키기 위해 `provision.sh`가 `secret.key -> t_secret.key` 상대 링크를 생성하며 `run-app.sh`가 바이너리 실행에 한해 키 디렉토리를 전달한다.
 
 ## 3. 실제 Ubuntu VM에서 수집해야 할 필수 증거
 
@@ -41,10 +85,10 @@
 | 사용자·그룹 | `id agent-admin; id agent-dev; id agent-test` → test는 core 미포함 | 미확인 |
 | 디렉토리/ACL | `sudo getfacl -p /home/agent-admin/agent-app/{upload_files,api_keys} /var/log/agent-app` | 미확인 |
 | monitor 소유·권한 | `sudo stat -c '%U:%G %a' /home/agent-admin/agent-app/bin/monitor.sh` → `agent-dev:agent-core 750` | 미확인 |
-| 앱 Boot 성공 | `sudo -iu agent-admin /home/agent-admin/agent-app/bin/run-app.sh` → 실제 `[1/5]`~`[5/5] [OK]`, `Agent READY` 캡처 | 미확인 |
-| 앱 LISTEN | `sudo ss -ltnp | grep ':15034'` → `0.0.0.0:15034` | 미확인 |
-| 모니터 출력 | `sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh` → PID/PORT/CPU/MEM/DISK 및 경고 | 미확인 |
-| 로그 누적 | `sudo tail -n 5 /var/log/agent-app/monitor.log` → 실제 로그 행 확인 | 미확인 |
+| 앱 Boot 성공 (VM) | `sudo -iu agent-admin /home/agent-admin/agent-app/bin/run-app.sh` → 실제 `[1/5]`~`[5/5] [OK]`, `Agent READY` 캡처 | Debian x86 확인, Ubuntu VM 미확인 |
+| 앱 LISTEN (VM) | `sudo ss -ltnp | grep ':15034'` → `0.0.0.0:15034` | Debian x86 확인, Ubuntu VM 미확인 |
+| 모니터 출력 (VM) | `sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh` → PID/PORT/CPU/MEM/DISK 및 경고 | Debian x86 확인, Ubuntu VM 미확인 |
+| 로그 누적 (VM) | `sudo tail -n 5 /var/log/agent-app/monitor.log` → 실제 로그 행 확인 | Debian 수동 한 줄 확인, Ubuntu VM 미확인 |
 | cron | `sudo crontab -u agent-admin -l` → `* * * * *` 작업 확인 | 미확인 |
 | cron 자동 실행 | 앱 실행 중 1~2분 이후 `monitor.log`의 **새 타임스탬프/줄 수 증가** 확인 | 미확인 |
 
@@ -52,8 +96,8 @@
 
 ## 4. 종료 조건과 남은 외부 작업
 
-1. 공식 `agent-app.zip`의 원본 실행 파일을 확보하여 VM에 설치한다. 신뢰할 수 없는 타인의 빌드를 대체 사용하지 않는다.
-2. 콘솔 접근 가능한 전용 Ubuntu 22.04 실습 VM에 `provision.sh`와 `secure-network.sh`를 적용한다. 새 터미널의 SSH 20022 접속을 확인한다.
-3. 제공 앱의 실제 Boot 5단계와 `Agent READY`, 15034 LISTEN을 확인한다.
-4. `monitor.sh` 직접 실행, 크론 등록, 1~2분 후 로그 증가를 확인한다.
-5. 이 문서의 `미확인`을 실제 실행 증거와 함께 갱신한다. **그 전에는 실습 환경 검증 완료로 선언하지 않는다.**
+1. 사용자에게 받은 `agent-app.zip`을 전용 Ubuntu 22.04 실습 VM의 저장소 폴더에 복사한다. `sudo bash scripts/provision.sh` 뒤 `sudo bash scripts/install-app.sh ./agent-app.zip`으로 아키텍처별 바이너리를 설치한다.
+2. 콘솔 접근이 가능한 VM에서만 `sudo bash scripts/secure-network.sh --apply`를 실행하고, 새 터미널에서 SSH 20022의 비-Root 로그인 성공을 확인한다. 현재 연결을 먼저 닫지 않는다.
+3. VM에서 제공 앱의 5단계와 `Agent READY`, 15034 LISTEN을 다시 확인한다.
+4. `monitor.sh`를 직접 실행하고, cron 등록 후 1~2분 동안 **자동으로** `monitor.log`가 증가하는지 비교한다.
+5. 위 표의 미확인 항목을 실제 VM에서 얻은 출력과 함께 기록한다. **그 전에는 Ubuntu 실습 환경의 전체 요구사항을 검증 완료로 선언하지 않는다.**
