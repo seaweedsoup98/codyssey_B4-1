@@ -1,0 +1,10 @@
+# The original app must come from the mission package; never commit binaries.
+agent-app.zip
+agent-app-linux-*
+agent_app.py
+# Runtime material belongs only on the VM.
+*.log
+*.key
+*.env
+*.pyc
+__pycache__/
